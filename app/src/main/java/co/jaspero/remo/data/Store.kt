@@ -20,6 +20,8 @@ data class Preset(
     val background: Long,
     val foreground: Long,
     val builtIn: Boolean = false,
+    /** Installed by Remo from an APK: opened over ADB, since such apps often have no link to open them by. */
+    val viaAdb: Boolean = false,
 )
 
 data class Settings(
@@ -46,6 +48,12 @@ object BuiltInPresets {
      * A user preset from what they typed: a link (anything with "://") or a package name, which
      * is opened with market://launch, the way the TV launches apps that have no deep link.
      */
+    fun sideloaded(name: String, pkg: String): Preset {
+        val (bg, fg) = if (listOf("org.smarttube", "com.teamsmart", "com.liskovsoft").any { pkg.startsWith(it) }) 0xFF1E1E1E to 0xFFFF4E45
+        else palette[(name.hashCode() and 0x7FFFFFFF) % palette.size]
+        return Preset("adb-$pkg", name, "market://launch?id=$pkg", pkg, bg, fg, viaAdb = true)
+    }
+
     fun custom(name: String, target: String): Preset {
         val t = target.trim()
         val isLink = "://" in t
@@ -82,14 +90,14 @@ class Store(context: Context) {
         return parse(raw) {
             Preset(
                 it.getString("id"), it.getString("name"), it.getString("link"), it.optString("pkg"),
-                it.getLong("bg"), it.getLong("fg"), it.optBoolean("builtIn"),
+                it.getLong("bg"), it.getLong("fg"), it.optBoolean("builtIn"), it.optBoolean("viaAdb"),
             )
         }
     }
 
     fun savePresets(list: List<Preset>) = prefs.edit().putString("presets", JSONArray(list.map {
         JSONObject().put("id", it.id).put("name", it.name).put("link", it.link).put("pkg", it.pkg)
-            .put("bg", it.background).put("fg", it.foreground).put("builtIn", it.builtIn)
+            .put("bg", it.background).put("fg", it.foreground).put("builtIn", it.builtIn).put("viaAdb", it.viaAdb)
     }).toString()).apply()
 
     fun settings() = Settings(

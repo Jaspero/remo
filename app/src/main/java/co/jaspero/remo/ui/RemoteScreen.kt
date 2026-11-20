@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Input
+import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -85,7 +86,7 @@ import co.jaspero.remo.tv.Keys
 import co.jaspero.remo.tv.RemoteSession.Direction
 
 @Composable
-fun RemoteScreen(c: TvController, onOpenDevices: () -> Unit) {
+fun RemoteScreen(c: TvController, onOpenDevices: () -> Unit, onOpenInstall: () -> Unit) {
     val tv by c.current.collectAsState()
     val conn by c.conn.collectAsState()
     val state by c.tvState.collectAsState()
@@ -132,7 +133,7 @@ fun RemoteScreen(c: TvController, onOpenDevices: () -> Unit) {
                     Text(statusLine(conn, state, presets), color = RemoColors.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            SettingsMenu(c, onOpenDevices)
+            SettingsMenu(c, onOpenDevices, onOpenInstall)
             Spacer(Modifier.width(4.dp))
             RoundKey(
                 Icons.Filled.PowerSettingsNew, "", haptics, size = 48.dp,
@@ -316,7 +317,7 @@ private fun PresetTile(p: Preset, active: Boolean, onLaunch: () -> Unit, onRemov
                 p.name,
                 color = Color(p.foreground),
                 fontWeight = FontWeight.Black,
-                fontSize = if (p.name.length > 7) 13.sp else 16.sp,
+                fontSize = when { p.name.length > 9 -> 11.sp; p.name.length > 7 -> 12.sp; else -> 16.sp },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 8.dp),
@@ -360,7 +361,7 @@ private fun MoreKeys(c: TvController, haptics: Boolean) {
 }
 
 @Composable
-private fun SettingsMenu(c: TvController, onOpenDevices: () -> Unit) {
+private fun SettingsMenu(c: TvController, onOpenDevices: () -> Unit, onOpenInstall: () -> Unit) {
     val settings by c.settings.collectAsState()
     var open by remember { mutableStateOf(false) }
     Box {
@@ -370,6 +371,11 @@ private fun SettingsMenu(c: TvController, onOpenDevices: () -> Unit) {
                 text = { Text("TVs") },
                 leadingIcon = { Icon(Icons.Filled.Tv, null) },
                 onClick = { open = false; onOpenDevices() },
+            )
+            DropdownMenuItem(
+                text = { Text("Install apps on TV") },
+                leadingIcon = { Icon(Icons.Filled.InstallMobile, null) },
+                onClick = { open = false; onOpenInstall() },
             )
             HorizontalDivider()
             Toggle("Phone volume buttons control TV", settings.volumeKeys) { v -> c.updateSettings { it.copy(volumeKeys = v) } }

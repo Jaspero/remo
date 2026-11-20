@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        setContent { RemoTheme { RemoRoot(controller) } }
+        setContent { RemoTheme { RemoRoot(controller, (application as RemoApp).installer) } }
     }
 
     override fun onStart() {

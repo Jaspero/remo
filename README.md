@@ -11,6 +11,9 @@ no Google Home, nothing installed on the TV.
 - Keyboard on any screen; it opens by itself when the TV shows a text field
 - Phone volume buttons control the TV; TV volume level shown
 - Remembers several TVs, finds them on the Wi-Fi, follows a TV whose IP changed
+- Install apps on the TV from your phone (over ADB): one tap for [SmartTube](https://github.com/yuliskov/SmartTube)
+  (YouTube without ads, latest stable build from its GitHub releases), an APK on the phone, or a link.
+  Installed apps get their own button. Needs Developer options → USB debugging on the TV, once.
 
 ## Install
 
@@ -30,7 +33,7 @@ The signing key is in `secrets/` (not in git). Keep it: updates only install ove
 
 ## Credits
 
-The protocol details follow [androidtvremote2](https://github.com/tronikos/androidtvremote2) and the
+ADB is done with [dadb](https://github.com/mobile-dev-inc/dadb). The protocol details follow [androidtvremote2](https://github.com/tronikos/androidtvremote2) and the
 community write-ups it links to. Not affiliated with Google. YouTube, Netflix, Disney+ and Kodi are
 trademarks of their owners; the app only opens them.
 

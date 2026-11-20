@@ -258,7 +258,15 @@ class TvController(context: Context) {
 
     fun key(code: Int, direction: RemoteSession.Direction = RemoteSession.Direction.SHORT) = withSession { it.key(code, direction) }
 
-    fun launch(preset: Preset) = withSession { it.launch(preset.link) }
+    /** Set by the app: opens a sideloaded app over ADB. */
+    var adbLauncher: ((String) -> Unit)? = null
+
+    fun launch(preset: Preset) {
+        val viaAdb = adbLauncher
+        if (preset.viaAdb && viaAdb != null) viaAdb(preset.pkg) else launchLink(preset.link)
+    }
+
+    fun launchLink(link: String) = withSession { it.launch(link) }
 
     /**
      * Brings the TV's text field from [old] to [new]: deletes what changed at the end and inserts
@@ -291,6 +299,14 @@ class TvController(context: Context) {
     fun addPreset(name: String, target: String) {
         _presets.value = _presets.value + BuiltInPresets.custom(name, target)
         store.savePresets(_presets.value)
+    }
+
+    /** Adds an app button for an app Remo installed. Returns false if there already is one. */
+    fun addSideloadedPreset(name: String, pkg: String): Boolean {
+        if (_presets.value.any { it.pkg == pkg }) return false
+        _presets.value = _presets.value + BuiltInPresets.sideloaded(name, pkg)
+        store.savePresets(_presets.value)
+        return true
     }
 
     fun removePreset(p: Preset) {

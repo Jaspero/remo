@@ -60,18 +60,19 @@ import co.jaspero.remo.TvController.Pairing
 import co.jaspero.remo.data.SavedTv
 
 @Composable
-fun RemoRoot(c: TvController) {
+fun RemoRoot(c: TvController, installer: co.jaspero.remo.AppInstaller) {
     val current by c.current.collectAsState()
-    var showDevices by rememberSaveable { mutableStateOf(false) }
+    var screen by rememberSaveable { mutableStateOf("remote") }
 
     // Picking or pairing a TV takes you back to the remote.
-    LaunchedEffect(current?.name) { showDevices = false }
-    BackHandler(enabled = showDevices && current != null) { showDevices = false }
+    LaunchedEffect(current?.name) { if (screen == "devices") screen = "remote" }
+    BackHandler(enabled = screen != "remote" && current != null) { screen = "remote" }
 
-    if (current == null || showDevices) {
-        DevicesScreen(c, onClose = if (current != null) ({ showDevices = false }) else null)
-    } else {
-        RemoteScreen(c, onOpenDevices = { showDevices = true })
+    when {
+        current == null || screen == "devices" ->
+            DevicesScreen(c, onClose = if (current != null) ({ screen = "remote" }) else null)
+        screen == "install" -> InstallScreen(c, installer, onClose = { screen = "remote" })
+        else -> RemoteScreen(c, onOpenDevices = { screen = "devices" }, onOpenInstall = { screen = "install" })
     }
     PairingDialog(c)
 }
