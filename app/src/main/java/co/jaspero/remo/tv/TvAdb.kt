@@ -41,11 +41,38 @@ class TvAdb(private val dir: File) {
                 .ifEmpty { listOf(dadb.shell("getprop ro.product.cpu.abi").output.trim()) }
         }
 
-        /** Streams the APK to the TV's package installer. Throws with the installer's reason on failure. */
-        fun install(apk: File, onProgress: (Float) -> Unit) {
-            val total = apk.length()
+        /**
+         * Installs the APK. Streaming it straight into the package installer is fastest, but some
+         * TVs close that stream without a word, so then it's copied to the TV and installed with
+         * `pm install` (as the adb tool does on such devices), which reports its reason on failure.
+         * [pkg] and [versionCode] identify the APK, to check whether it got installed anyway.
+         */
+        fun install(apk: File, pkg: String, versionCode: Long, onProgress: (Float) -> Unit) {
+            val streamError = try {
+                dadb.install(counting(apk, onProgress), apk.length(), "-r")
+                return
+            } catch (e: IOException) {
+                e
+            }
+            if (pkg.isNotEmpty() && installedVersion(pkg) == versionCode) return
+
+            val remote = "/data/local/tmp/remo-install.apk"
+            try {
+                onProgress(0f)
+                dadb.push(counting(apk, onProgress), remote, 420 /* 0644 */, System.currentTimeMillis())
+                val out = dadb.shell("pm install -r \"$remote\"").allOutput.trim()
+                if (out.contains("Success")) return
+                if (pkg.isNotEmpty() && installedVersion(pkg) == versionCode) return
+                throw IOException(explain(out.ifEmpty { streamError.message.orEmpty() }))
+            } finally {
+                runCatching { dadb.shell("rm -f \"$remote\"") }
+            }
+        }
+
+        private fun counting(apk: File, onProgress: (Float) -> Unit): okio.Source {
+            val total = apk.length().coerceAtLeast(1)
             var sent = 0L
-            val source = object : ForwardingSource(apk.source()) {
+            return object : ForwardingSource(apk.source()) {
                 override fun read(sink: Buffer, byteCount: Long): Long {
                     val n = super.read(sink, byteCount)
                     if (n > 0) {
@@ -55,12 +82,10 @@ class TvAdb(private val dir: File) {
                     return n
                 }
             }
-            try {
-                source.use { dadb.install(it, total, "-r") }
-            } catch (e: IOException) {
-                throw IOException("The TV refused the app: " + (e.message?.trim() ?: "unknown reason"), e)
-            }
         }
+
+        private fun installedVersion(pkg: String): Long? =
+            Regex("""versionCode=(\d+)""").find(dadb.shell("dumpsys package $pkg").output)?.groupValues?.get(1)?.toLongOrNull()
 
         /** Opens an installed app the way the TV's home screen does. */
         fun launch(pkg: String) {
@@ -102,5 +127,33 @@ class TvAdb(private val dir: File) {
 
     companion object {
         const val PORT = 5555
+
+        /** Turns the package installer's failure code into what to do about it. */
+        fun explain(output: String): String {
+            val code = Regex("""(INSTALL_[A-Z_]+)""").find(output)?.groupValues?.get(1)
+            val advice = when (code) {
+                "INSTALL_FAILED_VERIFICATION_FAILURE", "INSTALL_FAILED_VERIFICATION_TIMEOUT" ->
+                    "Google Play Protect blocked it. On the TV, open Settings → System → Developer options, turn off \"Verify apps over USB\", and try again."
+                "INSTALL_FAILED_INSUFFICIENT_STORAGE" ->
+                    "The TV is out of space. Uninstall or clear the cache of an app you don't use, then try again."
+                "INSTALL_FAILED_NO_MATCHING_ABIS", "INSTALL_FAILED_CPU_ABI_INCOMPATIBLE" ->
+                    "This build doesn't run on the TV's processor."
+                "INSTALL_FAILED_UPDATE_INCOMPATIBLE" ->
+                    "A copy of this app from somewhere else is already on the TV. Uninstall it there first, then try again."
+                "INSTALL_FAILED_USER_RESTRICTED" ->
+                    "The TV doesn't allow installing over debugging. Look for \"Install via USB\" in Developer options and turn it on."
+                "INSTALL_FAILED_VERSION_DOWNGRADE" ->
+                    "The TV already has a newer version of this app."
+                "INSTALL_FAILED_OLDER_SDK" ->
+                    "The app needs a newer Android version than the TV has."
+                else -> null
+            }
+            val detail = output.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
+            return when {
+                advice != null -> "$advice ($code)"
+                detail.isNotEmpty() -> "The TV refused the app: $detail"
+                else -> "The TV refused the app without giving a reason."
+            }
+        }
     }
 }

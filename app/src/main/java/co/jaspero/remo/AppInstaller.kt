@@ -93,9 +93,9 @@ class AppInstaller(context: Context, private val controller: TvController) {
                 _state.value = State.Working("Connecting to ${tv.name}…", waitingForTv = true)
                 val (label, pkg) = adb.session(tv.host) { session ->
                     val file = obtain(session).also { apk = it }
-                    val (label, pkg) = apkInfo(file)
+                    val (label, pkg, version) = apkInfo(file)
                     _state.value = State.Working("Sending $label to the TV…", 0f)
-                    session.install(file) { p ->
+                    session.install(file, pkg, version) { p ->
                         _state.value = if (p < 1f) State.Working("Sending $label to the TV…", p)
                         else State.Working("Installing $label…")
                     }
@@ -173,16 +173,17 @@ class AppInstaller(context: Context, private val controller: TvController) {
         throw IOException("No stable SmartTube release found")
     }
 
-    /** The app's name and package, read from the APK on the phone. */
-    private fun apkInfo(f: File): Pair<String, String> {
+    /** The app's name, package and version, read from the APK on the phone. */
+    private fun apkInfo(f: File): Triple<String, String, Long> {
         val pm = app.packageManager
         @Suppress("DEPRECATION")
-        val info = pm.getPackageArchiveInfo(f.path, 0) ?: return "the app" to ""
-        val ai = info.applicationInfo ?: return info.packageName to info.packageName
+        val info = pm.getPackageArchiveInfo(f.path, 0) ?: return Triple("the app", "", -1L)
+        val version = if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+        val ai = info.applicationInfo ?: return Triple(info.packageName, info.packageName, version)
         ai.sourceDir = f.path
         ai.publicSourceDir = f.path
         val label = runCatching { ai.loadLabel(pm).toString() }.getOrDefault(info.packageName)
-        return label to info.packageName
+        return Triple(label, info.packageName, version)
     }
 
     private fun tempFile(): File {
