@@ -33,7 +33,7 @@ The signing key is in `secrets/` (not in git). Keep it: updates only install ove
 
 ## Credits
 
-ADB is done with [dadb](https://github.com/mobile-dev-inc/dadb). The protocol details follow [androidtvremote2](https://github.com/tronikos/androidtvremote2) and the
+The protocol details follow [androidtvremote2](https://github.com/tronikos/androidtvremote2) and the
 community write-ups it links to. Not affiliated with Google. YouTube, Netflix, Disney+ and Kodi are
 trademarks of their owners; the app only opens them.
 

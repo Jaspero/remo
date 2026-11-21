@@ -66,15 +66,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     // Only used once, to make the self-signed certificate the TV knows this phone by.
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
-    // ADB client, for installing and opening apps on the TV.
-    implementation("dev.mobile:dadb:1.2.9") {
-        // Its published POM lists test libraries as runtime dependencies.
-        exclude(group = "org.junit.platform")
-        exclude(group = "org.junit.jupiter")
-        exclude(group = "org.opentest4j")
-        exclude(group = "org.apiguardian")
-        exclude(group = "org.graalvm.buildtools")
-    }
 
     testImplementation("junit:junit:4.13.2")
+    // Only to check our ADB public key format against an independent implementation.
+    testImplementation("dev.mobile:dadb:1.2.9") {
+        exclude(group = "org.junit.platform")
+        exclude(group = "org.junit.jupiter")
+    }
 }

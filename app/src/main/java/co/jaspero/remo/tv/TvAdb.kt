@@ -1,12 +1,8 @@
 package co.jaspero.remo.tv
 
-import dadb.AdbKeyPair
-import dadb.Dadb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okio.Buffer
-import okio.ForwardingSource
-import okio.source
+import java.io.EOFException
 import java.io.File
 import java.io.IOException
 import java.net.ConnectException
@@ -24,76 +20,73 @@ class AdbNotAllowedException : IOException("The TV didn't allow the connection."
  * do. The TV asks once to allow this phone's key; with "Always allow" it never asks again.
  */
 class TvAdb(private val dir: File) {
-    private val keyPair: AdbKeyPair by lazy {
-        val priv = File(dir, "adbkey")
-        val pub = File(dir, "adbkey.pub")
-        if (!priv.exists() || !pub.exists()) {
-            AdbKeyPair.generate(priv, pub)
-            // The comment after the key is the name the TV shows in its prompt.
-            pub.writeText(pub.readText().replace(" unknown@unknown", " Remo@${android.os.Build.MODEL.replace(' ', '-')}"))
-        }
-        AdbKeyPair.read(priv, pub)
+    private val key: AdbKey by lazy {
+        AdbKey.loadOrCreate(dir, "Remo@" + android.os.Build.MODEL.replace(' ', '-'))
     }
 
-    class Session internal constructor(private val dadb: Dadb) {
+    class Session internal constructor(private val host: String, private val connect: () -> AdbClient) {
+        private var client: AdbClient = connect()
+
+        /** Runs [block] on the connection, reconnecting once if the TV dropped it. */
+        private fun <T> withClient(block: (AdbClient) -> T): T = try {
+            block(client)
+        } catch (e: IOException) {
+            if (e is AdbTlsRequiredException) throw e
+            client.close()
+            client = connect()
+            block(client)
+        }
+
         val abis: List<String> by lazy {
-            dadb.shell("getprop ro.product.cpu.abilist").output.trim().split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                .ifEmpty { listOf(dadb.shell("getprop ro.product.cpu.abi").output.trim()) }
+            withClient { c ->
+                c.exec("getprop ro.product.cpu.abilist").trim().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    .ifEmpty { listOf(c.exec("getprop ro.product.cpu.abi").trim()) }
+            }
         }
 
         /**
-         * Installs the APK. Streaming it straight into the package installer is fastest, but some
-         * TVs close that stream without a word, so then it's copied to the TV and installed with
-         * `pm install` (as the adb tool does on such devices), which reports its reason on failure.
+         * Installs the APK: streamed into the package installer first; if the TV ends that without
+         * an answer, the APK is copied to the TV and installed with `pm install`.
          * [pkg] and [versionCode] identify the APK, to check whether it got installed anyway.
          */
         fun install(apk: File, pkg: String, versionCode: Long, onProgress: (Float) -> Unit) {
-            val streamError = try {
-                dadb.install(counting(apk, onProgress), apk.length(), "-r")
-                return
+            val streamed = try {
+                if ("cmd" in client.features || client.features.isEmpty()) client.installStreamed(apk, onProgress) else ""
             } catch (e: IOException) {
-                e
-            }
+                ""
+            }.trim()
+            if (streamed.startsWith("Success")) return
+            // A real refusal ("Failure [INSTALL_FAILED_…]") won't go better the other way.
+            if ("INSTALL_" in streamed) throw IOException(explain(streamed))
             if (pkg.isNotEmpty() && installedVersion(pkg) == versionCode) return
 
             val remote = "/data/local/tmp/remo-install.apk"
             try {
                 onProgress(0f)
-                dadb.push(counting(apk, onProgress), remote, 420 /* 0644 */, System.currentTimeMillis())
-                val out = dadb.shell("pm install -r \"$remote\"").allOutput.trim()
+                withClient { it.push(apk, remote, onProgress) }
+                val out = withClient { it.exec("pm install -r \"$remote\"") }.trim()
                 if (out.contains("Success")) return
                 if (pkg.isNotEmpty() && installedVersion(pkg) == versionCode) return
-                throw IOException(explain(out.ifEmpty { streamError.message.orEmpty() }))
+                throw IOException(explain(out.ifEmpty { streamed }))
             } finally {
-                runCatching { dadb.shell("rm -f \"$remote\"") }
+                runCatching { withClient { it.exec("rm -f \"$remote\"") } }
             }
         }
 
-        private fun counting(apk: File, onProgress: (Float) -> Unit): okio.Source {
-            val total = apk.length().coerceAtLeast(1)
-            var sent = 0L
-            return object : ForwardingSource(apk.source()) {
-                override fun read(sink: Buffer, byteCount: Long): Long {
-                    val n = super.read(sink, byteCount)
-                    if (n > 0) {
-                        sent += n
-                        onProgress(sent.toFloat() / total)
-                    }
-                    return n
-                }
-            }
-        }
-
-        private fun installedVersion(pkg: String): Long? =
-            Regex("""versionCode=(\d+)""").find(dadb.shell("dumpsys package $pkg").output)?.groupValues?.get(1)?.toLongOrNull()
+        private fun installedVersion(pkg: String): Long? = runCatching {
+            val out = withClient { it.exec("dumpsys package $pkg") }
+            Regex("""versionCode=(\d+)""").find(out)?.groupValues?.get(1)?.toLongOrNull()
+        }.getOrNull()
 
         /** Opens an installed app the way the TV's home screen does. */
         fun launch(pkg: String) {
-            val out = dadb.shell("monkey -p $pkg -c android.intent.category.LEANBACK_LAUNCHER 1").allOutput
+            val out = withClient { it.exec("monkey -p $pkg -c android.intent.category.LEANBACK_LAUNCHER 1") }
             if ("No activities found" in out || "Error" in out) {
-                dadb.shell("monkey -p $pkg -c android.intent.category.LAUNCHER 1")
+                withClient { it.exec("monkey -p $pkg -c android.intent.category.LAUNCHER 1") }
             }
         }
+
+        internal fun close() = client.close()
     }
 
     /**
@@ -101,28 +94,25 @@ class TvAdb(private val dir: File) {
      * time, so give the user up to two minutes to answer it.
      */
     suspend fun <T> session(host: String, block: suspend (Session) -> T): T = withContext(Dispatchers.IO) {
-        val dadb = Dadb.create(host, PORT, keyPair, connectTimeout = 4000, socketTimeout = 120_000)
-        try {
-            val s = Session(dadb)
-            try {
-                s.abis // forces the connection and authorisation
-            } catch (e: Exception) {
-                throw when (rootCause(e)) {
-                    is ConnectException, is NoRouteToHostException -> AdbDisabledException()
-                    is SocketTimeoutException -> AdbNotAllowedException()
-                    else -> if (e.message?.contains("auth", ignoreCase = true) == true) AdbNotAllowedException() else e
-                }
-            }
-            block(s)
-        } finally {
-            runCatching { dadb.close() }
+        val session = try {
+            Session(host) { AdbClient.connect(host, PORT, key) }
+        } catch (e: AdbTlsRequiredException) {
+            throw e
+        } catch (e: ConnectException) {
+            throw AdbDisabledException()
+        } catch (e: NoRouteToHostException) {
+            throw AdbDisabledException()
+        } catch (e: SocketTimeoutException) {
+            throw AdbNotAllowedException()
+        } catch (e: EOFException) {
+            // The TV hung up during the handshake: the prompt was declined, or it refuses this key.
+            throw AdbNotAllowedException()
         }
-    }
-
-    private fun rootCause(e: Throwable): Throwable {
-        var t = e
-        while (t.cause != null && t.cause !== t) t = t.cause!!
-        return t
+        try {
+            block(session)
+        } finally {
+            session.close()
+        }
     }
 
     companion object {
