@@ -5,6 +5,7 @@ import android.net.Uri
 import co.jaspero.remo.tv.AdbDisabledException
 import co.jaspero.remo.tv.AdbNotAllowedException
 import co.jaspero.remo.tv.TvAdb
+import co.jaspero.remo.tv.YouTubeLinks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,27 @@ class AppInstaller(context: Context, private val controller: TvController) {
     }
 
     fun installFromLink(link: String) = start { download(link.trim()) }
+
+    sealed interface PlayResult {
+        /** [inSmartTube]: false when the TV's own YouTube app had to be used (SmartTube missing or debugging off). */
+        data class Playing(val tvName: String, val inSmartTube: Boolean) : PlayResult
+        data class Failed(val message: String) : PlayResult
+    }
+
+    /**
+     * Plays a YouTube video on the TV: in SmartTube (no ads) over ADB when it's installed,
+     * otherwise in the TV's YouTube app through the remote connection.
+     */
+    suspend fun play(video: YouTubeLinks.Video): PlayResult {
+        val tv = controller.current.value ?: return PlayResult.Failed("Pair a TV in Remo first.")
+        val inSmartTube = runCatching {
+            adb.session(tv.host) { s -> s.smartTubePackage()?.also { s.openUrl(video.url, it) } != null }
+        }.getOrDefault(false)
+        if (inSmartTube) return PlayResult.Playing(tv.name, true)
+        if (!controller.awaitConnected(8000)) return PlayResult.Failed("Can't reach ${tv.name}. Is it on and on the same Wi-Fi?")
+        controller.launchLink(video.url)
+        return PlayResult.Playing(tv.name, false)
+    }
 
     /** Opens a sideloaded app; the remote protocol can only open apps that have a link. */
     fun launch(pkg: String) {

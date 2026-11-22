@@ -14,6 +14,8 @@ no Google Home, nothing installed on the TV.
 - Install apps on the TV from your phone (over ADB): one tap for [SmartTube](https://github.com/yuliskov/SmartTube)
   (YouTube without ads, latest stable build from its GitHub releases), an APK on the phone, or a link.
   Installed apps get their own button. Needs Developer options → USB debugging on the TV, once.
+- "Play on TV" in the phone's share menu: share a video from the YouTube app (or any link to one) and it plays
+  on the TV in SmartTube, without ads and without Chromecast. Falls back to the TV's YouTube app.
 
 ## Install
 

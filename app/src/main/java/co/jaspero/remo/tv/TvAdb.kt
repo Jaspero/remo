@@ -78,6 +78,20 @@ class TvAdb(private val dir: File) {
             Regex("""versionCode=(\d+)""").find(out)?.groupValues?.get(1)?.toLongOrNull()
         }.getOrNull()
 
+        /** The installed SmartTube's package, if there is one. */
+        fun smartTubePackage(): String? {
+            val pkgs = withClient { it.exec("pm list packages") }.lines().map { it.removePrefix("package:").trim() }.toSet()
+            return SMARTTUBE_PACKAGES.firstOrNull { it in pkgs }
+                ?: pkgs.firstOrNull { p -> SMARTTUBE_PREFIXES.any { p.startsWith(it) } }
+        }
+
+        /** Opens [url] in [pkg]. [url] must be shell-safe (YouTubeLinks only produces such links). */
+        fun openUrl(url: String, pkg: String) {
+            require(Regex("""^[A-Za-z0-9:/?&=._-]+$""").matches(url)) { "Unsafe link" }
+            val out = withClient { it.exec("am start -a android.intent.action.VIEW -d '$url' $pkg") }
+            if ("Error" in out || "Exception" in out) throw IOException(out.lines().firstOrNull { "Error" in it || "Exception" in it } ?: out)
+        }
+
         /** Opens an installed app the way the TV's home screen does. */
         fun launch(pkg: String) {
             val out = withClient { it.exec("monkey -p $pkg -c android.intent.category.LEANBACK_LAUNCHER 1") }
@@ -117,6 +131,8 @@ class TvAdb(private val dir: File) {
 
     companion object {
         const val PORT = 5555
+        val SMARTTUBE_PACKAGES = listOf("org.smarttube.stable", "org.smarttube.beta", "com.teamsmart.videomanager.tv", "com.liskovsoft.smarttubetv.beta")
+        private val SMARTTUBE_PREFIXES = listOf("org.smarttube", "com.teamsmart", "com.liskovsoft.smarttube")
 
         /** Turns the package installer's failure code into what to do about it. */
         fun explain(output: String): String {

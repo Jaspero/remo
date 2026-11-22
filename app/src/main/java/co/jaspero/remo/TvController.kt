@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -114,6 +115,13 @@ class TvController(context: Context) {
         if (connectJob?.isActive == true) return
         val tv = _current.value ?: run { _conn.value = Conn.NoTv; return }
         connectJob = scope.launch { connectLoop(tv) }
+    }
+
+    /** Connects if needed and waits until the remote connection is up. */
+    suspend fun awaitConnected(timeoutMs: Long): Boolean {
+        if (_conn.value == Conn.Connected && session.value?.isOpen == true) return true
+        ensureConnected()
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { conn.first { it == Conn.Connected } } != null
     }
 
     fun retry() {

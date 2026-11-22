@@ -25,5 +25,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- "Play on TV" in the share menu, for YouTube links from any app. -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:label="@string/play_on_tv"
+            android:theme="@style/Theme.Remo.Translucent"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
